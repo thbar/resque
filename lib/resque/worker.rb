@@ -20,6 +20,9 @@ module Resque
     # Automatically set if a fork(2) fails.
     attr_accessor :cant_fork
 
+    # enables wmic process listing (useful on Windows where ps isn't there)
+    attr_accessor :use_wmic
+    
     attr_writer :to_s
 
     # Returns an array of all worker objects.
@@ -408,12 +411,28 @@ module Resque
       @hostname ||= `hostname`.chomp
     end
 
-    # Returns an array of string pids of all the other workers on this
-    # machine. Useful when pruning dead workers on startup.
-    def worker_pids
+    def ps_worker_pids
       `ps -A -o pid,command | grep [r]esque`.split("\n").map do |line|
         line.split(' ')[0]
       end
+    end
+    
+    def wmic_worker_pids
+      # notes:
+      # - not using backtick because it doesn't work on the author's machine
+      # - this can actually return more pids than expected, but this works.
+      #   For instance I use FireDaemon to create Windows Services that shell
+      #   out batch files that will appear. I have no reliable way to filter
+      #   them out
+      IO.popen("wmic PROCESS get Processid,CommandLine /format:csv") do |f|
+        f.read.grep(/resque/).map { |line| line.split(",")[2].strip }
+      end      
+    end
+    
+    # Returns an array of string pids of all the other workers on this
+    # machine. Useful when pruning dead workers on startup.
+    def worker_pids
+      use_wmic ? wmic_worker_pids : ps_worker_pids
     end
 
     # Given a string, sets the procline ($0) and logs.
